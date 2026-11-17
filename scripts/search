@@ -1,0 +1,25 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Entry point on the phone:  search        -> terminal chat
+#                            search web    -> web UI on http://127.0.0.1:8090
+#                            search stop   -> stop llama-server and the web UI
+set -eu
+APP=$HOME/phone-search
+cd "$APP"
+case "${1:-chat}" in
+  stop)
+    pkill -x llama-server && echo "stopped llama-server" || true
+    pkill -f "python -m phone_search.web" && echo "stopped web UI" || true
+    ;;
+  web)
+    termux-wake-lock 2>/dev/null || true
+    scripts/start-llm.sh
+    pgrep -f "phone_search.web" >/dev/null || { nohup python -m phone_search.web > web.log 2>&1 < /dev/null & }
+    echo "open http://127.0.0.1:8090"
+    ;;
+  *)
+    termux-wake-lock 2>/dev/null || true
+    scripts/start-llm.sh
+    shift || true
+    exec python -m phone_search.cli "$@"
+    ;;
+esac

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
+<title>Search</title>
+<style>
+  :root { color-scheme: light dark; --dim: #8a8a8a; --bubble: #7772; --accent: #d71921; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.45 system-ui, sans-serif; display: flex; flex-direction: column; height: 100dvh; }
+  header { display: flex; gap: .5rem; align-items: center; padding: .5rem .75rem; border-bottom: 1px solid var(--bubble); }
+  header h1 { font-size: 1rem; margin: 0; flex: 1; }
+  header label { font-size: .85rem; color: var(--dim); }
+  #log { flex: 1; overflow-y: auto; padding: .75rem; }
+  .msg { margin: 0 0 1rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .user { background: var(--bubble); padding: .5rem .75rem; border-radius: 1rem; margin-inline-start: 15%; }
+  .status { color: var(--dim); font-size: .85rem; }
+  .sources { font-size: .85rem; color: var(--dim); margin-top: .4rem; white-space: normal; }
+  .sources a { color: inherit; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { font-size: .75rem; color: var(--dim); }
+  form { display: flex; gap: .5rem; padding: .5rem; border-top: 1px solid var(--bubble); }
+  textarea { flex: 1; font: inherit; padding: .5rem; border-radius: .75rem; resize: none; }
+  button { font: inherit; border: 0; border-radius: .75rem; padding: 0 1rem; background: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Search</h1>
+  <label><input type="checkbox" id="think"> think</label>
+  <button id="new" type="button">New</button>
+</header>
+<div id="log"></div>
+<form id="f">
+  <textarea id="q" rows="2" placeholder="Ask anything…" dir="auto"></textarea>
+  <button id="send">Ask</button>
+</form>
+<script>
+const $ = s => document.querySelector(s);
+let sid = crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2);
+
+function add(cls, text) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + cls; d.dir = 'auto'; d.textContent = text || '';
+  $('#log').append(d); $('#log').scrollTop = 1e9; return d;
+}
+
+function linkCitations(el, sources) {
+  // Make [n] clickable when we know the source.
+  const byN = Object.fromEntries(sources.map(s => [s.n, s.url]));
+  el.innerHTML = el.textContent.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))
+    .replace(/\[(\d+)\]/g, (m, n) => byN[n] ? `<a href="${byN[n]}" target="_blank" rel="noopener">${m}</a>` : m);
+}
+
+$('#f').onsubmit = e => {
+  e.preventDefault();
+  const q = $('#q').value.trim(); if (!q) return;
+  $('#q').value = ''; $('#send').disabled = true;
+  add('user', q);
+  const status = add('status', 'thinking…');
+  let answer = null;
+  const es = new EventSource(`/ask?sid=${sid}&think=${$('#think').checked ? 1 : 0}&q=${encodeURIComponent(q)}`);
+  es.addEventListener('status', e => { status.textContent = JSON.parse(e.data); });
+  es.addEventListener('challenge', e => {
+    const url = JSON.parse(e.data), d = add('status', 'The search engine wants a human check: ');
+    const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = 'open it, solve it, then ask again'; d.append(a);
+  });
+  es.addEventListener('answer_start', () => { status.remove(); answer = add('', ''); });
+  es.addEventListener('content', e => { (answer ||= add('', '')).textContent += JSON.parse(e.data); $('#log').scrollTop = 1e9; });
+  es.addEventListener('done', e => {
+    const d = JSON.parse(e.data); es.close(); status.remove();
+    answer ||= add('', ''); answer.textContent = d.text; linkCitations(answer, d.sources);
+    if (d.sources.length) {
+      const s = document.createElement('div'); s.className = 'sources';
+      for (const x of d.sources) {
+        const a = document.createElement('a'); a.href = x.url; a.target = '_blank'; a.rel = 'noopener';
+        a.textContent = `[${x.n}] ${x.title}`; s.append(a);
+      }
+      answer.append(s);
+    }
+    add('meta', `${d.searches.length} search(es) · ${d.usage.prompt_tokens} prompt + ${d.usage.completion_tokens} generated tokens`);
+    $('#send').disabled = false;
+  });
+  es.addEventListener('error', e => {
+    es.close(); status.textContent = 'error: ' + (e.data ? JSON.parse(e.data) : 'connection lost');
+    $('#send').disabled = false;
+  });
+};
+$('#q').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#f').requestSubmit(); } });
+$('#new').onclick = () => { fetch(`/reset?sid=${sid}`); sid = crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2); $('#log').innerHTML = ''; };
+</script>
+</body>
+</html>
