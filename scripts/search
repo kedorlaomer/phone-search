@@ -7,7 +7,7 @@ APP=$HOME/phone-search
 cd "$APP"
 case "${1:-chat}" in
   stop)
-    pkill -x llama-server && echo "stopped llama-server" || true
+    pkill -f "bin/llama-server " && echo "stopped llama-server" || true
     pkill -f "python -m phone_search.web" && echo "stopped web UI" || true
     ;;
   web)
